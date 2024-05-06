@@ -310,6 +310,7 @@ func main() {
 		logrus.Fatalf("sleep-jitter is too large, it must be less than the 'sleep' period %d", viper.GetInt("sleep"))
 	}
 
+  // TODO(Tosh):  Replace these logic with scheduler
 	runChan := make(chan bool)
 	runOnce := func() {
 		// Non-blocking send to the run channel. If it's already running, this will be a no-op.

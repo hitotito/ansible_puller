@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+  "regexp"
+  "strconv"
 	"strings"
 	"time"
 
@@ -28,22 +30,76 @@ type VenvConfig struct {
 	Python string // path to the desired Python installation
 }
 
+func getPythonVersion(interpreter string) (int, int, error) {
+  // Return (major, minor, error)
+  cmd := exec.Command(interpreter, "--version")
+  output, err := cmd.Output()
+  if err != nil {
+    failedCommandLogger(cmd)
+    return -1, -1, errors.Wrap(err, "Unable to determine Python version.")
+  }
+  r := regexp.MustCompile(`Python (\d).(\d+)(\.\d+)?`)
+  matches := r.FindStringSubmatch(string(output))
+  majorVersion, err := strconv.Atoi(matches[1])
+  if err != nil {
+    return -1, -1, errors.Wrap(err, "Unable to parse Python Major version.")
+  }
+
+  minorVersion, err := strconv.Atoi(matches[2])
+  if err != nil {
+    return -1, 1, errors.Wrap(err, "Unable to parse Python Minor version.")
+  }
+
+  return majorVersion, minorVersion, nil
+}
+
 // Takes a VenvConfig and will create a new virtual environment.
 func makeVenv(cfg VenvConfig) error {
-	venvExecutable, err := exec.LookPath("virtualenv")
+  // Let's check python version first, since python version 3.3 or greater should have venv module
+  // https://docs.python.org/3/library/venv.html
+  majorV, minorV, err := getPythonVersion(cfg.Python)
+  if err != nil {
+    return errors.Wrap(err, "Unable to determine python version for specified interpreter.")
+  }
+
+  if majorV >= 3 && minorV >= 3 {
+    err = makeVenvViaModule(cfg)
+  } else {
+    err = makeVenvLegacy(cfg)
+  }
+  if err != nil {
+    return errors.Wrap(err,  "unable to create virtual environment")
+  }
+
+	return nil
+}
+
+func makeVenvViaModule(cfg VenvConfig) error {
+  logrus.Debugln("Creating virtualenv via python module venv.")
+  cmd := exec.Command(cfg.Python, "-m", "venv", cfg.Path)
+  err := cmd.Run()
+	if err != nil {
+		failedCommandLogger(cmd)
+    return err
+	}
+  return nil
+}
+
+func makeVenvLegacy(cfg VenvConfig) error {
+  // Create virtualenv using legancy `virtualenv` command
+  venvExecutable, err := exec.LookPath("virtualenv")
 	if err != nil {
 		return errors.Wrap(err, "virtualenv not found in path")
 	}
 
 	cmd := exec.Command(venvExecutable, "--python", cfg.Python, cfg.Path)
-
 	err = cmd.Run()
 	if err != nil {
 		failedCommandLogger(cmd)
-		return errors.Wrap(err, "unable to create virtual environment")
+    return err
 	}
 
-	return nil
+  return nil
 }
 
 // Ensure ensures that a virtual environment exists, if not, it attempts to create it
